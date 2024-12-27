@@ -9,7 +9,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIO(server, {
     cors: {
-        origin: "http://localhost:3000",
+        origin: "https://kozver.netlify.app",
         methods: ["GET", "POST"],
         credentials: true,
         transports: ['websocket', 'polling']
@@ -26,7 +26,7 @@ const io = socketIO(server, {
 });
 
 app.use(cors({
-    origin: "http://localhost:3000",
+    origin: "https://kozver.netlify.app",
     methods: ["GET", "POST"],
     credentials: true
 }));
