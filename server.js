@@ -15,6 +15,8 @@ const io = socketIO(server, {
         transports: ['websocket', 'polling']
     },
     allowEIO3: true,
+    pingTimeout: 60000, // 60 saniye
+    pingInterval: 25000, // 25 saniye
     cookie: {
         name: "socket-io",
         httpOnly: true,
@@ -42,6 +44,8 @@ io.on('connection', (socket) => {
     
     let heartbeat = null;
     let heartbeatMisses = 0;
+    let connectionAttempts = 0;
+    const MAX_CONNECTION_ATTEMPTS = 5;
     
     const startHeartbeat = () => {
         if (heartbeat) {
@@ -49,10 +53,26 @@ io.on('connection', (socket) => {
         }
 
         heartbeat = setInterval(() => {
-            socket.emit('ping', Date.now());
-            heartbeatMisses++;
+            if (connectionAttempts >= MAX_CONNECTION_ATTEMPTS) {
+                console.log(`${socket.id} için maksimum bağlantı denemesi aşıldı`);
+                clearInterval(heartbeat);
+                socket.disconnect(true);
+                return;
+            }
+
+            socket.emit('ping', Date.now(), (response) => {
+                if (!response) {
+                    heartbeatMisses++;
+                    connectionAttempts++;
+                    console.log(`Heartbeat kaçırıldı: ${socket.id}, Deneme: ${connectionAttempts}`);
+                } else {
+                    heartbeatMisses = 0;
+                    connectionAttempts = 0;
+                }
+            });
             
             if (heartbeatMisses >= MAX_RECONNECTION_ATTEMPTS) {
+                console.log(`${socket.id} için heartbeat yanıtı alınamadı, bağlantı kesiliyor`);
                 clearInterval(heartbeat);
                 socket.disconnect(true);
             }
@@ -61,6 +81,7 @@ io.on('connection', (socket) => {
 
     socket.on('pong', () => {
         heartbeatMisses = 0;
+        connectionAttempts = 0;
     });
 
     socket.on('join-room', (username) => {
@@ -78,13 +99,14 @@ io.on('connection', (socket) => {
             .find(([_, username]) => username === to)?.[0];
         
         if (targetSocketId && io.sockets.sockets.has(targetSocketId)) {
+            console.log(`Ses sinyali gönderiliyor: ${fromUsername} -> ${to} (${type})`);
             socket.to(targetSocketId).emit('voice-signal', {
                 from: fromUsername,
                 signal,
                 type
             });
         } else {
-            // Hedef kullanıcı bulunamadı, göndereni bilgilendir
+            console.log(`Hedef kullanıcı bulunamadı: ${to}`);
             socket.emit('voice-error', {
                 target: to,
                 error: 'user-not-connected'
@@ -102,7 +124,8 @@ io.on('connection', (socket) => {
             });
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', (reason) => {
+        console.log(`Kullanıcı bağlantısı kesildi: ${socket.id}, Sebep: ${reason}`);
         if (heartbeat) {
             clearInterval(heartbeat);
         }
@@ -121,6 +144,16 @@ io.on('connection', (socket) => {
             console.log(`${username} odadan ayrıldı`);
         }
     });
+
+    // Yeni hata yakalama
+    socket.on('error', (error) => {
+        console.error(`Socket hatası (${socket.id}):`, error);
+    });
+});
+
+// Global hata yakalama
+io.engine.on('connection_error', (err) => {
+    console.error('Bağlantı hatası:', err);
 });
 
 const PORT = process.env.PORT || 5000;
